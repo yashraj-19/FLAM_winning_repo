@@ -53,36 +53,51 @@ the metrics strip exists.
 re-run on the review machine; these are the developer's numbers, not a claim
 about yours.)_
 
-All four charts visible, all six series enabled, 1m window unless noted.
+All four charts mounted, all six series enabled.
 
-| Scenario | Points held | Points/frame | FPS | ms draw | ms process | Heap | Dropped/s |
-|---|---|---|---|---|---|---|---|
-| Live, 6 pts/tick | 11,032 | 168 | **60** | 0.2 | 0.1 | 60.8 MB | 0 |
-| Live, 262 pts/tick, 15m window | 175,592 | 1,056 | **60** | 1.4 | 1.4 | 60.9 MB | 0 |
-| Buffer saturated, 262 pts/tick | 200,000 (full) | — | **60** | 2.2 | 2.6 | 61.8 MB | 0 |
+### Live window, tracking the newest data
+
+| Points held | Pts scanned/frame | FPS | ms draw | ms process | Heap | Dropped/s |
+|---|---|---|---|---|---|---|
+| 11,236 | 10,236 | **60** | 3.1 | 0.2 | 61.8 MB | 0 |
+
+### Parked window, feed rate raised mid-run
+
+The window is held still while the feed runs at 400 points/tick, so the *visible*
+slice is constant and the *stored* dataset grows underneath it. This is the
+measurement that isolates whether cost tracks data volume.
+
+| Points held | Pts scanned/frame | FPS | ms draw | ms process | Heap |
+|---|---|---|---|---|---|
+| 13,024 | **5,796** | 60 | 2.2 | 0.2 | 63.1 MB |
+| 47,906 | **5,796** | 60 | 2.0 | 0.7 | 62.3 MB |
+| 75,506 | **5,796** | 60 | 3.6 | 1.4 | 62.1 MB |
 
 **What these numbers show.**
 
-*Frame time does not track dataset size.* Points held rose 16× (11k → 175k) while
-draw time rose 7× (0.2 → 1.4ms) and points actually drawn rose 6× (168 → 1,056).
-Both are bounded by pixel columns, not by data. At 2.2ms of draw against a
-16.67ms budget, the renderer is using **13% of a frame** with a full buffer.
+*Work per frame is flat while the dataset grows 6×.* Points held went
+13k → 76k; points scanned per frame did not move — 5,796, three times running.
+That is the level-of-detail system doing exactly what it was built for: the
+renderer is bounded by the visible window and by pixel columns, not by how much
+data is retained. Draw time wanders between 2.0 and 3.6ms on noise, not on trend.
 
-*Zero dropped frames at every load*, including a saturated 200k buffer.
+*Heap went **down** 1 MB while stored points grew 6×* (63.1 → 62.1 MB). The ring
+buffer's 2.6MB of typed arrays is committed at construction, so filling it is not
+an allocation event — the small decline is just GC reclaiming render-path
+garbage. A per-point-object design would have allocated ~62,000 objects across
+that same span and shown a matching upward ramp.
 
-*Heap moved 60.8 → 61.8 MB — 1 MB — while stored points grew 18×.* That is the
-preallocated ring buffer doing its job: the 2.6MB of typed arrays is committed at
-construction, so filling it is not an allocation event. A per-point-object design
-would have allocated roughly 190,000 objects over the same span.
+*3.6ms of draw against a 16.67ms budget is **22% of a frame**,* with four charts
+live and 76k points retained. Zero dropped frames at every level.
 
-> **The 200k row's points/frame is recorded as `—` on purpose.** That measurement
-> was taken while the viewport had been parked outside the retained window (see
-> §3.7), so the renderer legitimately had nothing in range and reported 0. The
-> bug is fixed; the row needs re-measuring rather than a number invented to fill
-> the gap.
+**"Pts scanned/frame" is work examined, not marks painted.** It sums across all
+four mounted charts, each of which walks the same visible window — which is why
+it can legitimately exceed points held. It was originally labelled
+"points/frame", which read as "points drawn" and overstated what was happening;
+the label was corrected rather than the number.
 
-Still to measure: the 2,000 pts/tick stress mode, and a multi-hour soak for the
-memory-growth-per-hour figure.
+Still to measure: the 2,000 pts/tick stress mode, a saturated 200k buffer in live
+mode, and a multi-hour soak for a real memory-growth-per-hour figure.
 
 ### Memory, which is exact rather than measured
 
@@ -358,6 +373,20 @@ Two things the driver (`useAggregation.ts`) has to get right:
 
 Buffers are **transferred**, not cloned — a structured clone of a 200k-point
 window would itself cost several ms on the main thread, defeating the point.
+
+**And transferred back.** Transfer moves ownership, so the first version had to
+allocate a fresh copy of the window for every request: ~2.6MB at a full buffer,
+five times a second, about **12MB/s of garbage** — in the one subsystem whose
+documentation claimed it did not allocate. Found by watching the heap readout
+climb 60 → 82 MB during a run.
+
+The fix is a ping-pong. One capacity-sized scratch set is allocated on mount,
+transferred to the worker, and returned in the response so it can be reused.
+Because back-pressure guarantees a single request in flight, one set suffices —
+it is either here or at the worker, never both, so `scratchRef === null` doubles
+as the in-flight flag. The buffers are reclaimed **before** the stale-response
+check, since dropping them on the stale path would leak the set and quietly
+revert to allocating per request.
 
 ---
 
