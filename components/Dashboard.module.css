@@ -1,0 +1,89 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  max-width: 1600px;
+  margin: 0 auto;
+  min-height: 100dvh;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.h1 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.toggles {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 7px;
+}
+
+.toggle {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.6875rem;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.toggle:hover {
+  color: var(--text-primary);
+}
+
+.toggle[aria-pressed='true'] {
+  background: var(--series-1);
+  color: #fff;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 1px;
+}
+
+/*
+ * Two columns on desktop, one on narrow screens. auto-fit with a minmax floor
+ * means the breakpoint follows the available width rather than a guessed device
+ * size, so it also does the right thing when the window is merely narrow.
+ */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 10px;
+}
+
+.grid > * {
+  min-height: 260px;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .grid > * {
+    min-height: 220px;
+  }
+}

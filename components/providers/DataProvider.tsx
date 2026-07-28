@@ -85,9 +85,22 @@ export function DataProvider({
    */
   const [engine] = useState<Engine>(() => {
     const store = new TimeSeriesStore(capacity);
-    store.load(initialData);
 
-    const now = store.tMax || Date.now();
+    /**
+     * The Server Component emits timestamps as offsets relative to zero so that
+     * the route contains no wall-clock value and can be statically generated.
+     * Rebasing them onto this client's clock is what makes a cached payload
+     * still read as "the last minute" for whoever loads it.
+     *
+     * Written into a typed array rather than mapped into a new JS array: this
+     * is 10k numbers, and the store wants them in this form anyway.
+     */
+    const base = Date.now();
+    const seedTs = new Float64Array(initialData.timestamps.length);
+    for (let i = 0; i < seedTs.length; i++) seedTs[i] = initialData.timestamps[i] + base;
+    store.pushBatch(seedTs, initialData.values, initialData.categories);
+
+    const now = store.tMax || base;
     const viewport = new ViewportStore(
       { tMin: now - DEFAULT_SPAN_MS, tMax: now, vMin: 0, vMax: 100 },
       DEFAULT_SPAN_MS,
@@ -104,7 +117,9 @@ export function DataProvider({
     scatter: true,
     heatmap: true,
   });
-  const [pointsPerTick, setPointsPerTick] = useState(CATEGORIES.length);
+  // Explicit <number>: CATEGORIES is `as const`, so its `.length` is the literal
+  // type 6 and inference would lock the setter to only ever accept 6.
+  const [pointsPerTick, setPointsPerTick] = useState<number>(CATEGORIES.length);
   const [running, setRunning] = useState(true);
   const [stressTest, setStressTest] = useState(false);
 
