@@ -49,9 +49,12 @@ export const PerformanceMonitor = memo(function PerformanceMonitor() {
         <span className={styles.label}>points held</span>
       </div>
 
+      {/* "scanned", not "drawn": this is raw points examined per frame summed
+          across all four charts, which is why it can exceed points held - each
+          chart walks the same window. Labelling it "drawn" overstated it. */}
       <div className={styles.metric}>
         <span className={styles.value}>{m.pointsDrawn.toLocaleString()}</span>
-        <span className={styles.label}>points/frame</span>
+        <span className={styles.label}>pts scanned/frame</span>
       </div>
 
       <div className={styles.metric}>
