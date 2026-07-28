@@ -1,5 +1,7 @@
 # Telemetry Dashboard
 
+**Live demo → https://performance-dashboard-opal.vercel.app**
+
 A real-time data visualization dashboard that renders and updates a
 high-frequency telemetry feed at 60fps. Four chart types, all drawn from
 scratch on canvas — no charting library.
