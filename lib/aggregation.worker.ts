@@ -20,17 +20,22 @@ import type { AggregateRequest, AggregateResponse } from './types';
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 ctx.onmessage = (e: MessageEvent<AggregateRequest>) => {
-  const { requestId, tMin, tMax, categoryMask, columns, series, timestamps, values, categories } = e.data;
+  const { requestId, tMin, tMax, categoryMask, columns, series, count, timestamps, values, categories } =
+    e.data;
   const started = performance.now();
 
   const n = series * columns;
   const sum = new Float64Array(n);
-  const count = new Uint32Array(n);
+  /** Points per grid cell. Named to keep it distinct from the request's `count`. */
+  const cellCount = new Uint32Array(n);
   const rowMin = new Float32Array(series).fill(Infinity);
   const rowMax = new Float32Array(series).fill(-Infinity);
 
   const invColWidth = columns / (tMax - tMin || 1);
-  const len = timestamps.length;
+  // The request's `count`, not `timestamps.length`: the arrays are
+  // capacity-sized and reused, so everything past `count` is stale data left
+  // over from an earlier request.
+  const len = Math.min(count, timestamps.length);
 
   for (let i = 0; i < len; i++) {
     const t = timestamps[i];
@@ -44,7 +49,7 @@ ctx.onmessage = (e: MessageEvent<AggregateRequest>) => {
 
     const idx = c * columns + col;
     sum[idx] += values[i];
-    count[idx]++;
+    cellCount[idx]++;
   }
 
   const avg = new Float32Array(n);
@@ -52,8 +57,8 @@ ctx.onmessage = (e: MessageEvent<AggregateRequest>) => {
     const base = s * columns;
     for (let col = 0; col < columns; col++) {
       const i = base + col;
-      if (count[i] === 0) continue;
-      const a = sum[i] / count[i];
+      if (cellCount[i] === 0) continue;
+      const a = sum[i] / cellCount[i];
       avg[i] = a;
       // Range per series, not global. The six signals differ by an order of
       // magnitude, so one shared colour scale would paint four of the rows a
@@ -72,12 +77,25 @@ ctx.onmessage = (e: MessageEvent<AggregateRequest>) => {
     columns,
     series,
     avg,
-    count,
+    count: cellCount,
     rowMin,
     rowMax,
     elapsed: performance.now() - started,
+    // Hand the input buffers back so the sender can reuse them next round.
+    // Transfer moved ownership here; without this return leg it would have to
+    // allocate a fresh 2.6MB set for every request.
+    timestamps,
+    values,
+    categories,
   };
 
-  // Transfer the results back rather than cloning them.
-  ctx.postMessage(response, [avg.buffer, count.buffer, rowMin.buffer, rowMax.buffer]);
+  ctx.postMessage(response, [
+    avg.buffer,
+    cellCount.buffer,
+    rowMin.buffer,
+    rowMax.buffer,
+    timestamps.buffer,
+    values.buffer,
+    categories.buffer,
+  ]);
 };

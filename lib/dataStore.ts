@@ -176,17 +176,21 @@ export class TimeSeriesStore {
   }
 
   /**
-   * Copy the live window into fresh dense arrays.
+   * Copy the live window into caller-owned dense arrays.
    *
-   * Used to hand data to the worker - the copy is unavoidable because the
-   * ArrayBuffer is transferred, and we cannot give away the buffer the render
-   * loop is reading from. Deliberately not called per frame.
+   * A copy is unavoidable: the buffers handed to the worker are *transferred*,
+   * and we cannot give away the memory the render loop is reading from.
+   *
+   * What is avoidable is allocating that copy every time. The first version
+   * returned three fresh arrays per call; at a full buffer and a 220ms cadence
+   * that is 2.6MB of garbage roughly five times a second - about 12MB/s, in the
+   * one module that claims not to allocate. Now the caller owns the buffers and
+   * ping-pongs them with the worker, so this is a memcpy into memory that
+   * already exists.
+   *
+   * Destination arrays must be at least `capacity` long. Returns points written.
    */
-  snapshot(): { timestamps: Float64Array; values: Float32Array; categories: Uint8Array } {
-    const n = this._count;
-    const timestamps = new Float64Array(n);
-    const values = new Float32Array(n);
-    const categories = new Uint8Array(n);
+  snapshotInto(timestamps: Float64Array, values: Float32Array, categories: Uint8Array): number {
     let off = 0;
     for (const { start, length } of this.segments()) {
       timestamps.set(this.ts.subarray(start, start + length), off);
@@ -194,7 +198,7 @@ export class TimeSeriesStore {
       categories.set(this.cat.subarray(start, start + length), off);
       off += length;
     }
-    return { timestamps, values, categories };
+    return off;
   }
 
   /** Materialise a slice as objects. Only for the table and tooltips. */

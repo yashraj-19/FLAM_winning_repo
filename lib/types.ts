@@ -40,7 +40,11 @@ export interface PerformanceMetrics {
   renderTime: number;
   /** Time spent aggregating/filtering for the last update, in ms. */
   dataProcessingTime: number;
-  /** Points submitted to the renderer on the last frame (post level-of-detail). */
+  /**
+   * Raw points examined on the last frame, summed across every mounted chart.
+   * Can exceed `pointsTotal` because each chart walks the same window - it is a
+   * measure of work done, not of marks painted.
+   */
   pointsDrawn: number;
   /** Points currently held in the ring buffer. */
   pointsTotal: number;
@@ -123,6 +127,11 @@ export interface AggregateRequest {
   /** Number of time columns in the output grid. */
   columns: number;
   series: number;
+  /**
+   * Populated length. The arrays are sized to the ring buffer's full capacity
+   * and reused, so their `.length` is the ceiling, not the live point count.
+   */
+  count: number;
   timestamps: Float64Array;
   values: Float32Array;
   categories: Uint8Array;
@@ -140,4 +149,12 @@ export interface AggregateResponse {
   rowMax: Float32Array;
   /** Wall time the worker spent on this request, in ms. */
   elapsed: number;
+  /**
+   * The request's input arrays, handed back so the caller can reuse them.
+   * Transferring moves ownership, so without this return leg the sender would
+   * have to allocate a fresh set for every request.
+   */
+  timestamps: Float64Array;
+  values: Float32Array;
+  categories: Uint8Array;
 }
