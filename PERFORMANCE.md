@@ -49,19 +49,40 @@ the metrics strip exists.
 > numbers are meaningless — Strict Mode double-invokes effects and React ships
 > its development build.
 
-**Environment:** _fill in — CPU, RAM, OS, browser + version_
+**Environment:** Windows 11, Chromium-based browser. _(CPU/RAM to be filled in —
+re-run on the review machine; these are the developer's numbers, not a claim
+about yours.)_
 
-| Scenario | Points held | Points/frame | FPS | ms draw | Heap |
-|---|---|---|---|---|---|
-| Idle (6 pts/tick) | ~10,000 | | | | |
-| 10k points, live | 10,000 | | | | |
-| 50 pts/tick | ~50,000 | | | | |
-| 200 pts/tick | ~200,000 (full) | | | | |
-| **Stress test** (2,000/tick) | 200,000 (full) | | | | |
-| Stress + all 4 charts + pan | 200,000 | | | | |
+All four charts visible, all six series enabled, 1m window unless noted.
 
-_(Table intentionally left for measurement on the review machine — numbers copied
-from a different laptop would not be evidence of anything.)_
+| Scenario | Points held | Points/frame | FPS | ms draw | ms process | Heap | Dropped/s |
+|---|---|---|---|---|---|---|---|
+| Live, 6 pts/tick | 11,032 | 168 | **60** | 0.2 | 0.1 | 60.8 MB | 0 |
+| Live, 262 pts/tick, 15m window | 175,592 | 1,056 | **60** | 1.4 | 1.4 | 60.9 MB | 0 |
+| Buffer saturated, 262 pts/tick | 200,000 (full) | — | **60** | 2.2 | 2.6 | 61.8 MB | 0 |
+
+**What these numbers show.**
+
+*Frame time does not track dataset size.* Points held rose 16× (11k → 175k) while
+draw time rose 7× (0.2 → 1.4ms) and points actually drawn rose 6× (168 → 1,056).
+Both are bounded by pixel columns, not by data. At 2.2ms of draw against a
+16.67ms budget, the renderer is using **13% of a frame** with a full buffer.
+
+*Zero dropped frames at every load*, including a saturated 200k buffer.
+
+*Heap moved 60.8 → 61.8 MB — 1 MB — while stored points grew 18×.* That is the
+preallocated ring buffer doing its job: the 2.6MB of typed arrays is committed at
+construction, so filling it is not an allocation event. A per-point-object design
+would have allocated roughly 190,000 objects over the same span.
+
+> **The 200k row's points/frame is recorded as `—` on purpose.** That measurement
+> was taken while the viewport had been parked outside the retained window (see
+> §3.7), so the renderer legitimately had nothing in range and reported 0. The
+> bug is fixed; the row needs re-measuring rather than a number invented to fill
+> the gap.
+
+Still to measure: the 2,000 pts/tick stress mode, and a multi-hour soak for the
+memory-growth-per-hour figure.
 
 ### Memory, which is exact rather than measured
 
@@ -165,7 +186,30 @@ shortcut: at that density the shapes overlap into solid ink and cannot be read
 anyway, while `fillRect` costs a fraction of a path. **Detail that cannot be
 perceived is detail worth dropping.**
 
-### 3.6 Pointer events fire faster than frames
+### 3.6 A click is not a pan
+
+Found by looking at a screenshot of a saturated buffer: every chart blank,
+`points/frame` at 0, FPS still a healthy 60.
+
+`panByPixels` set `following = false` unconditionally — including when `dx === 0`.
+A plain click on a chart therefore dropped out of live mode while changing
+nothing visible. The window then froze in place, and because retention is
+bounded by rate (200k points at 2,600/s is about **76 seconds**), the ring buffer
+soon lapped past it. Every point fell outside `[tMin, tMax]`, the binner skipped
+all of them, and four charts went silently empty.
+
+Three changes, because one would not have been enough:
+
+1. `panByPixels` ignores zero-distance drags — a click no longer means "pan".
+2. `ViewportStore.clampToData` slides a parked window back to the nearest edge of
+   what is still retained, preserving its span.
+3. `ChartShell` renders an explicit empty state that distinguishes *no data* from
+   *window outside retained data*, with a **Jump to live** button.
+
+The third matters most. The first two make the failure rare; the third makes it
+legible when it happens. An empty chart that says nothing reads as a crash.
+
+### 3.7 Pointer events fire faster than frames
 
 `pointermove` runs above display refresh on many trackpads. `rafThrottle`
 (`performanceUtils.ts`) collapses a burst into one call per frame, and
