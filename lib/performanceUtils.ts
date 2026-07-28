@@ -34,6 +34,16 @@ export class RenderScheduler {
   /** ms spent inside draw callbacks on the last frame. */
   lastRenderTime = 0;
 
+  /**
+   * Monotonic frame counter, handed to each draw callback.
+   *
+   * Charts use it to know whether they are the first to report this frame, so
+   * per-frame counters (points drawn, processing time) can be summed across
+   * charts and reset exactly once per frame without the scheduler needing to
+   * know those counters exist.
+   */
+  frameId = 0;
+
   register(draw: DrawFn): () => void {
     const id = this.nextId++;
     this.tasks.push({ id, draw });
@@ -71,6 +81,7 @@ export class RenderScheduler {
 
     if (this.dirty) {
       this.dirty = false;
+      this.frameId++;
       const t0 = performance.now();
       for (const task of this.tasks) task.draw(now);
       this.lastRenderTime = performance.now() - t0;

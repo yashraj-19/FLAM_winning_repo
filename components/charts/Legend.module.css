@@ -1,0 +1,53 @@
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 1px;
+}
+
+/* Filtered-out series stay legible so they can be switched back on. */
+.item[data-on='false'] {
+  opacity: 0.45;
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1.5px solid;
+  flex: none;
+}
+
+.label {
+  white-space: nowrap;
+}
+
+.shape {
+  color: var(--muted);
+  font-size: 0.625rem;
+}

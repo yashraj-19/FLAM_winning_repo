@@ -15,6 +15,8 @@ export interface ChartFrame {
   viewport: Readonly<Viewport>;
   /** rAF timestamp for the current frame. */
   now: number;
+  /** Scheduler frame counter, used to reset per-frame metrics exactly once. */
+  frameId: number;
 }
 
 export interface ChartRendererOptions {
@@ -105,7 +107,15 @@ export function useChartRenderer(
       };
       if (plot.width <= 0 || plot.height <= 0) return;
 
-      drawRef.current({ ctx, plot, width, height, viewport: viewport.current, now });
+      drawRef.current({
+        ctx,
+        plot,
+        width,
+        height,
+        viewport: viewport.current,
+        now,
+        frameId: scheduler.frameId,
+      });
     });
     return unregister;
   }, [scheduler, viewport]);
