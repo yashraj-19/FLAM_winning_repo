@@ -1,0 +1,122 @@
+.panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.groupLabel {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 7px;
+}
+
+.segment {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.6875rem;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.segment:hover {
+  color: var(--text-primary);
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--series-1);
+  color: #fff;
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 1px;
+}
+
+.button {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.6875rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.button:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 1px;
+}
+
+.button[data-active='true'] {
+  background: var(--series-1);
+  border-color: var(--series-1);
+  color: #fff;
+}
+
+.button[data-danger='true'] {
+  border-color: rgba(208, 59, 59, 0.5);
+  color: #e08a8a;
+}
+
+.slider {
+  width: 110px;
+  accent-color: var(--series-1);
+  cursor: pointer;
+}
+
+.readout {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  min-width: 5.5ch;
+}
+
+.spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    gap: 8px 10px;
+  }
+
+  .slider {
+    width: 84px;
+  }
+}

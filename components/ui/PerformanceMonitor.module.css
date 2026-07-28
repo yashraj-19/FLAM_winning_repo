@@ -1,0 +1,59 @@
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 12px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  min-width: 74px;
+  flex: 1 1 auto;
+}
+
+.value {
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.label {
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Status colours ship with a text label beside them, never colour alone. */
+.metric[data-state='good'] .value {
+  color: #0ca30c;
+}
+
+.metric[data-state='warn'] .value {
+  color: #fab219;
+}
+
+.metric[data-state='bad'] .value {
+  color: #e66767;
+}
+
+@media (max-width: 640px) {
+  .metric {
+    min-width: 62px;
+    padding: 4px 8px;
+  }
+
+  .value {
+    font-size: 0.875rem;
+  }
+}
