@@ -57,9 +57,17 @@ All four charts mounted, all six series enabled.
 
 ### Live window, tracking the newest data
 
-| Points held | Pts scanned/frame | FPS | ms draw | ms process | Heap | Dropped/s |
-|---|---|---|---|---|---|---|
-| 11,236 | 10,236 | **60** | 3.1 | 0.2 | 61.8 MB | 0 |
+Same feed rate and a comparable buffer; only the visible window differs.
+
+| Window | Points held | Pts scanned/frame | FPS | ms draw | ms process | Heap | Dropped/s |
+|---|---|---|---|---|---|---|---|
+| 1 min | 11,236 | 10,236 | **60** | 3.1 | 0.2 | 61.8 MB | 0 |
+| 10 sec | 12,466 | 2,220 | **60** | 0.5 | 0.1 | 64.7 MB | 0 |
+
+Narrowing the window 6× cut work per frame 4.6× and draw time 6×, on a *larger*
+stored dataset. Cost is a function of what is on screen, not what is in memory —
+which is the same property the parked-window table below isolates from the other
+direction.
 
 ### Parked window, feed rate raised mid-run
 
@@ -89,6 +97,14 @@ that same span and shown a matching upward ramp.
 
 *3.6ms of draw against a 16.67ms budget is **22% of a frame**,* with four charts
 live and 76k points retained. Zero dropped frames at every level.
+
+**On the heap baseline.** The worker ping-pong holds a permanent
+capacity-sized scratch set — 2.6MB that used to be allocated and discarded per
+request instead. So the baseline is a couple of MB higher by design, in exchange
+for removing ~12MB/s of churn. Readings across a working session sat at 61.8,
+62.1, 62.3, 63.1 and 64.7 MB in no particular order: a band, not a ramp. A
+multi-hour soak is still the measurement that would settle it properly, and it
+has not been run.
 
 **"Pts scanned/frame" is work examined, not marks painted.** It sums across all
 four mounted charts, each of which walks the same visible window — which is why
