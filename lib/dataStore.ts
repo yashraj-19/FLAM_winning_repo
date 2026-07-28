@@ -32,6 +32,16 @@ export class TimeSeriesStore {
   /** Bumped on every write. Cheap integer, no allocation. */
   private _version = 0;
 
+  /**
+   * Reused by segments(). It is called by every chart on every frame, and
+   * returning a fresh array of fresh objects each time would be ~1000
+   * allocations a second for a value that is discarded immediately.
+   * The returned array is only valid until the next segments() call.
+   */
+  private segA = { start: 0, length: 0 };
+  private segB = { start: 0, length: 0 };
+  private segScratch: Array<{ start: number; length: number }> = [];
+
   private dataListeners = new Set<() => void>();
   private statsListeners = new Set<() => void>();
   private statsTimer: ReturnType<typeof setInterval> | null = null;
@@ -55,9 +65,23 @@ export class TimeSeriesStore {
     return this._version;
   }
 
-  /** Raw backing arrays. Read-only by convention - do not mutate. */
-  get raw() {
-    return { ts: this.ts, val: this.val, cat: this.cat, head: this.head, count: this._count };
+  /**
+   * Raw backing arrays, exposed individually rather than bundled in an object.
+   *
+   * A `get raw()` returning `{ts, val, cat}` would allocate a fresh object on
+   * every access - four charts x 60fps is 240 throwaway objects a second, in
+   * the one file that claims to allocate nothing per frame.
+   */
+  get timestamps(): Float64Array {
+    return this.ts;
+  }
+
+  get values(): Float32Array {
+    return this.val;
+  }
+
+  get categories(): Uint8Array {
+    return this.cat;
   }
 
   push(timestamp: number, value: number, category: number): void {
@@ -122,12 +146,20 @@ export class TimeSeriesStore {
    * Runs are returned oldest-first.
    */
   segments(): Array<{ start: number; length: number }> {
-    if (this._count === 0) return [];
+    const out = this.segScratch;
+    out.length = 0;
+    if (this._count === 0) return out;
     const start = (this.head - this._count + this.capacity) % this.capacity;
     const first = Math.min(this._count, this.capacity - start);
-    const segs = [{ start, length: first }];
-    if (first < this._count) segs.push({ start: 0, length: this._count - first });
-    return segs;
+    this.segA.start = start;
+    this.segA.length = first;
+    out.push(this.segA);
+    if (first < this._count) {
+      this.segB.start = 0;
+      this.segB.length = this._count - first;
+      out.push(this.segB);
+    }
+    return out;
   }
 
   /** Oldest timestamp currently held, or 0 when empty. */
