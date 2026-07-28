@@ -1,0 +1,239 @@
+import { CATEGORIES, type ColumnarData, type DataPoint } from './types';
+
+/**
+ * Fixed-capacity ring buffer over three parallel typed arrays.
+ *
+ * This is the single most important file in the project, so it is worth being
+ * explicit about why it looks like this.
+ *
+ * The feed pushes ~10 points every 100ms and runs for hours. The obvious
+ * implementation - an array of objects with `.slice()` or `.shift()` to cap the
+ * length - allocates one object per point and reallocates the backing array on
+ * every tick. Over an hour that is millions of short-lived objects, which shows
+ * up as sawtooth heap growth and GC pauses that blow the 16.67ms frame budget.
+ *
+ * Here the buffers are allocated exactly once, at construction. Writing a point
+ * is three indexed stores into pre-allocated memory. Steady-state allocation is
+ * zero, so "memory growth < 1MB/hour" holds by construction rather than by
+ * hoping the GC keeps up. When the buffer is full the oldest point is
+ * overwritten in place - that is the sliding window, and it costs nothing.
+ */
+export class TimeSeriesStore {
+  readonly capacity: number;
+
+  private ts: Float64Array;
+  private val: Float32Array;
+  private cat: Uint8Array;
+
+  /** Index the next write lands on. */
+  private head = 0;
+  private _count = 0;
+
+  /** Bumped on every write. Cheap integer, no allocation. */
+  private _version = 0;
+
+  private dataListeners = new Set<() => void>();
+  private statsListeners = new Set<() => void>();
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(capacity = 200_000) {
+    this.capacity = capacity;
+    // Float64 for timestamps: epoch millis exceed Float32's 24-bit integer
+    // precision, so Float32 would quantise them into ~minute-wide steps.
+    this.ts = new Float64Array(capacity);
+    // Float32 for values: half the bytes, and the extra precision is invisible
+    // once a value is rounded to a pixel.
+    this.val = new Float32Array(capacity);
+    this.cat = new Uint8Array(capacity);
+  }
+
+  get count(): number {
+    return this._count;
+  }
+
+  get version(): number {
+    return this._version;
+  }
+
+  /** Raw backing arrays. Read-only by convention - do not mutate. */
+  get raw() {
+    return { ts: this.ts, val: this.val, cat: this.cat, head: this.head, count: this._count };
+  }
+
+  push(timestamp: number, value: number, category: number): void {
+    const i = this.head;
+    this.ts[i] = timestamp;
+    this.val[i] = value;
+    this.cat[i] = category;
+    this.head = (i + 1) % this.capacity;
+    if (this._count < this.capacity) this._count++;
+    this._version++;
+  }
+
+  /**
+   * Bulk insert. Splits the write into at most two contiguous runs so the hot
+   * path is `set()` on a subarray rather than a modulo per element.
+   */
+  pushBatch(timestamps: ArrayLike<number>, values: ArrayLike<number>, categories: ArrayLike<number>): void {
+    const n = timestamps.length;
+    if (n === 0) return;
+
+    // A batch larger than capacity can only leave its tail behind.
+    if (n >= this.capacity) {
+      const off = n - this.capacity;
+      for (let i = 0; i < this.capacity; i++) {
+        this.ts[i] = timestamps[off + i];
+        this.val[i] = values[off + i];
+        this.cat[i] = categories[off + i];
+      }
+      this.head = 0;
+      this._count = this.capacity;
+      this._version++;
+      this.notifyData();
+      return;
+    }
+
+    const first = Math.min(n, this.capacity - this.head);
+    for (let i = 0; i < first; i++) {
+      const d = this.head + i;
+      this.ts[d] = timestamps[i];
+      this.val[d] = values[i];
+      this.cat[d] = categories[i];
+    }
+    for (let i = first; i < n; i++) {
+      const d = i - first;
+      this.ts[d] = timestamps[i];
+      this.val[d] = values[i];
+      this.cat[d] = categories[i];
+    }
+
+    this.head = (this.head + n) % this.capacity;
+    this._count = Math.min(this._count + n, this.capacity);
+    this._version++;
+    this.notifyData();
+  }
+
+  /**
+   * The buffer wraps at most once, so the live data is always one or two
+   * contiguous runs. Returning them lets callers use plain `for` loops over
+   * dense memory instead of `(start + i) % capacity` on every point - the
+   * modulo is a real cost at 100k points x 60fps.
+   *
+   * Runs are returned oldest-first.
+   */
+  segments(): Array<{ start: number; length: number }> {
+    if (this._count === 0) return [];
+    const start = (this.head - this._count + this.capacity) % this.capacity;
+    const first = Math.min(this._count, this.capacity - start);
+    const segs = [{ start, length: first }];
+    if (first < this._count) segs.push({ start: 0, length: this._count - first });
+    return segs;
+  }
+
+  /** Oldest timestamp currently held, or 0 when empty. */
+  get tMin(): number {
+    if (this._count === 0) return 0;
+    const start = (this.head - this._count + this.capacity) % this.capacity;
+    return this.ts[start];
+  }
+
+  /** Newest timestamp currently held, or 0 when empty. */
+  get tMax(): number {
+    if (this._count === 0) return 0;
+    return this.ts[(this.head - 1 + this.capacity) % this.capacity];
+  }
+
+  /**
+   * Copy the live window into fresh dense arrays.
+   *
+   * Used to hand data to the worker - the copy is unavoidable because the
+   * ArrayBuffer is transferred, and we cannot give away the buffer the render
+   * loop is reading from. Deliberately not called per frame.
+   */
+  snapshot(): { timestamps: Float64Array; values: Float32Array; categories: Uint8Array } {
+    const n = this._count;
+    const timestamps = new Float64Array(n);
+    const values = new Float32Array(n);
+    const categories = new Uint8Array(n);
+    let off = 0;
+    for (const { start, length } of this.segments()) {
+      timestamps.set(this.ts.subarray(start, start + length), off);
+      values.set(this.val.subarray(start, start + length), off);
+      categories.set(this.cat.subarray(start, start + length), off);
+      off += length;
+    }
+    return { timestamps, values, categories };
+  }
+
+  /** Materialise a slice as objects. Only for the table and tooltips. */
+  toPoints(offset: number, limit: number): DataPoint[] {
+    const out: DataPoint[] = [];
+    const n = Math.min(limit, Math.max(0, this._count - offset));
+    if (n <= 0) return out;
+    const start = (this.head - this._count + this.capacity) % this.capacity;
+    for (let i = 0; i < n; i++) {
+      const idx = (start + offset + i) % this.capacity;
+      out.push({
+        timestamp: this.ts[idx],
+        value: this.val[idx],
+        category: CATEGORIES[this.cat[idx]] ?? 'unknown',
+      });
+    }
+    return out;
+  }
+
+  load(data: ColumnarData): void {
+    this.pushBatch(data.timestamps, data.values, data.categories);
+  }
+
+  clear(): void {
+    this.head = 0;
+    this._count = 0;
+    this._version++;
+    this.notifyData();
+  }
+
+  /**
+   * Two notification channels, deliberately separate.
+   *
+   * `subscribeData` fires on every batch. The render scheduler uses it to set a
+   * dirty flag - no React involved.
+   *
+   * `subscribeStats` fires on a timer, at most every 250ms. React chrome (the
+   * counters, the table) subscribes here. Without this split, a 10Hz feed
+   * would drive 10 React renders per second for the entire component tree,
+   * which is exactly the trap this dashboard is built to avoid.
+   */
+  subscribeData(fn: () => void): () => void {
+    this.dataListeners.add(fn);
+    return () => this.dataListeners.delete(fn);
+  }
+
+  subscribeStats(fn: () => void): () => void {
+    this.statsListeners.add(fn);
+    if (!this.statsTimer) {
+      this.statsTimer = setInterval(() => {
+        for (const l of this.statsListeners) l();
+      }, 250);
+    }
+    return () => {
+      this.statsListeners.delete(fn);
+      if (this.statsListeners.size === 0 && this.statsTimer) {
+        clearInterval(this.statsTimer);
+        this.statsTimer = null;
+      }
+    };
+  }
+
+  private notifyData(): void {
+    for (const l of this.dataListeners) l();
+  }
+
+  /** Release the interval. Called from the provider's effect cleanup. */
+  dispose(): void {
+    if (this.statsTimer) clearInterval(this.statsTimer);
+    this.statsTimer = null;
+    this.dataListeners.clear();
+    this.statsListeners.clear();
+  }
+}
