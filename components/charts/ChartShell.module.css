@@ -51,6 +51,40 @@
   pointer-events: none;
 }
 
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  /* Sits over the canvas but must not block drag-to-pan; the button opts back in. */
+  pointer-events: none;
+  background: color-mix(in srgb, var(--surface-1) 72%, transparent);
+}
+
+.emptyAction {
+  pointer-events: auto;
+  border: 1px solid var(--border);
+  background: var(--series-1);
+  color: #fff;
+  font: inherit;
+  font-size: 0.6875rem;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.emptyAction:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
 .axisLabel {
   fill: var(--muted);
   font-size: 10px;

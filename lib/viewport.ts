@@ -69,7 +69,12 @@ export class ViewportStore {
 
   /** Drag. dx is in pixels; plotWidth converts it to a time delta. */
   panByPixels(dx: number, plotWidth: number): void {
-    if (plotWidth <= 0) return;
+    // A click is a pointerdown/up with no movement, and it used to land here
+    // with dx === 0 - which changed nothing visually but still dropped out of
+    // live mode. The window then froze while the ring buffer kept overwriting,
+    // and once it lapped, every point fell outside the window and all four
+    // charts went blank with no explanation. Zero-distance drags are not pans.
+    if (plotWidth <= 0 || dx === 0) return;
     const dt = (dx / plotWidth) * this.span;
     this.vp.tMin -= dt;
     this.vp.tMax -= dt;
@@ -108,6 +113,32 @@ export class ViewportStore {
     this.vp.tMin = now - spanMs;
     this.following = true;
     this.notify();
+  }
+
+  /**
+   * Keep a parked window within reach of the data that still exists.
+   *
+   * The ring buffer is finite, so retention is bounded by rate: at 2,600
+   * points/second a 200k buffer holds about 76 seconds. A window parked outside
+   * that span shows nothing at all - not because anything is broken, but
+   * because the data it points at has been overwritten. Rather than leave the
+   * user staring at four empty charts, slide the window back to the nearest
+   * edge of what is still retained, preserving its span.
+   *
+   * Only applies when parked; live mode is already pinned to the newest point.
+   */
+  clampToData(dataMin: number, dataMax: number): void {
+    if (this.following || dataMax <= dataMin) return;
+    const span = this.span;
+    if (this.vp.tMin > dataMax) {
+      this.vp.tMax = dataMax;
+      this.vp.tMin = dataMax - span;
+      this.notify();
+    } else if (this.vp.tMax < dataMin) {
+      this.vp.tMin = dataMin;
+      this.vp.tMax = dataMin + span;
+      this.notify();
+    }
   }
 
   setValueRange(vMin: number, vMax: number): void {

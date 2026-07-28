@@ -175,6 +175,9 @@ export function DataProvider({
       // subarray, not slice: a view onto the scratch buffer, zero copy.
       store.pushBatch(ts.subarray(0, n), val.subarray(0, n), cat.subarray(0, n));
       viewport.followTo(now);
+      // A parked window can be outrun by the ring buffer; pull it back to the
+      // data that still exists rather than let it point at overwritten slots.
+      viewport.clampToData(store.tMin, store.tMax);
     }, 100);
 
     return () => clearInterval(id);

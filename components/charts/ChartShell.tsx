@@ -64,8 +64,17 @@ export function ChartShell({
   onHover,
   children,
 }: ChartShellProps) {
-  const { viewport, scheduler } = useEngine();
+  const { viewport, scheduler, store } = useEngine();
   const { canvasRef, containerRef, size, plot } = useChartRenderer(draw, { padding: PADDING });
+
+  /**
+   * Why the plot is empty, when it is.
+   *
+   * An empty chart has two causes and they need different words: there is no
+   * data at all, or the window is parked somewhere the data no longer covers.
+   * Saying nothing was the original behaviour and it read as a crash.
+   */
+  const [emptyReason, setEmptyReason] = useState<'none' | 'nodata' | 'outofrange'>('none');
 
   // Axis state, refreshed on a timer rather than per frame.
   const [axis, setAxis] = useState({ tMin: 0, tMax: 0, yMin: 0, yMax: 1 });
@@ -73,6 +82,15 @@ export function ChartShell({
     const id = setInterval(() => {
       const vp = viewport.current;
       const y = yDomainRef.current ?? { min: 0, max: 1 };
+
+      const reason =
+        store.count === 0
+          ? 'nodata'
+          : vp.tMax < store.tMin || vp.tMin > store.tMax
+            ? 'outofrange'
+            : 'none';
+      setEmptyReason((prev) => (prev === reason ? prev : reason));
+
       setAxis((prev) => {
         // Skip the state update when nothing moved enough to change a label.
         const same =
@@ -84,7 +102,7 @@ export function ChartShell({
       });
     }, 140);
     return () => clearInterval(id);
-  }, [viewport, yDomainRef]);
+  }, [viewport, yDomainRef, store]);
 
   // --- interaction -------------------------------------------------------
   const dragRef = useRef<{ x: number; pointerId: number } | null>(null);
@@ -268,6 +286,25 @@ export function ChartShell({
             />
           )}
         </svg>
+
+        {emptyReason !== 'none' && (
+          <div className={styles.empty}>
+            {emptyReason === 'nodata' ? (
+              <p>No data yet — resume the feed to start streaming.</p>
+            ) : (
+              <>
+                <p>This window is outside the retained data.</p>
+                <button
+                  type="button"
+                  className={styles.emptyAction}
+                  onClick={() => viewport.setSpan(viewport.span, store.tMax || Date.now())}
+                >
+                  Jump to live
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {children}
       </div>
