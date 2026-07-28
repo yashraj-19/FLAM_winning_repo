@@ -105,27 +105,39 @@ export interface AggregatedSeries {
   length: number;
 }
 
-/** Message contract for the aggregation worker. */
+/**
+ * Message contract for the aggregation worker.
+ *
+ * The three data arrays are *transferred*, not cloned. Transferring moves
+ * ownership of the underlying ArrayBuffer with no copy, which matters because a
+ * structured clone of a 200k-point window would itself cost several
+ * milliseconds on the main thread - defeating the point of going off-thread.
+ * The sender must treat the arrays as gone once posted.
+ */
 export interface AggregateRequest {
   requestId: number;
-  bucketMs: number;
   tMin: number;
   tMax: number;
   /** Bitmask of enabled category ids. */
   categoryMask: number;
+  /** Number of time columns in the output grid. */
+  columns: number;
+  series: number;
   timestamps: Float64Array;
   values: Float32Array;
   categories: Uint8Array;
 }
 
+/** Grid results, indexed `series * columns + column`. */
 export interface AggregateResponse {
   requestId: number;
-  bucketStarts: Float64Array;
-  min: Float32Array;
-  max: Float32Array;
+  columns: number;
+  series: number;
   avg: Float32Array;
   count: Uint32Array;
-  length: number;
+  /** Per-series value range, used to normalise each row independently. */
+  rowMin: Float32Array;
+  rowMax: Float32Array;
   /** Wall time the worker spent on this request, in ms. */
   elapsed: number;
 }

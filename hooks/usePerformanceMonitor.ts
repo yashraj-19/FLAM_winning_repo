@@ -27,6 +27,25 @@ const EMPTY: PerformanceMetrics = {
 export const perfSink = {
   pointsDrawn: 0,
   dataProcessingTime: 0,
+  /** Frame the current totals belong to. */
+  frame: -1,
+
+  /**
+   * Add this chart's contribution to the current frame.
+   *
+   * The first chart to report in a new frame zeroes the totals, so the numbers
+   * are a sum across all charts for one frame rather than a running total that
+   * grows forever.
+   */
+  report(frameId: number, points: number, processingMs: number) {
+    if (frameId !== this.frame) {
+      this.frame = frameId;
+      this.pointsDrawn = 0;
+      this.dataProcessingTime = 0;
+    }
+    this.pointsDrawn += points;
+    this.dataProcessingTime += processingMs;
+  },
 };
 
 /**
