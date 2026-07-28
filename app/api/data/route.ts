@@ -10,14 +10,19 @@ const MAX_COUNT = 200_000;
  * GET /api/data?count=25000
  *
  * Returns the same columnar payload the Server Component embeds, for clients
- * that want to reseed without a navigation - the "Reseed" control uses this.
+ * that want a dataset without a navigation.
  *
- * Marked force-static: the generator is deterministic and takes no wall-clock
- * input, so for a given `count` the response never changes and can be cached
- * indefinitely. Timestamps are offsets relative to zero; the client rebases
- * them, which is what makes caching safe for a feed that is nominally "live".
+ * This route is intentionally *not* `force-static`. That was the first version
+ * and it was wrong: prerendering happens at build time, where there is no
+ * request and therefore no query string, so every response came back baked with
+ * the default count and `?count=3` was silently ignored.
+ *
+ * Caching still happens, just at the right layer. The generator is
+ * deterministic and takes no wall-clock input, so a given URL always produces
+ * the same bytes - which makes it safe to mark immutable and let the CDN cache
+ * it per URL, query string included. Timestamps are offsets from zero and the
+ * client rebases them, which is what lets a "live" feed be served from cache.
  */
-export const dynamic = 'force-static';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
