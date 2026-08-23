@@ -87,20 +87,15 @@ export function DataProvider({
     const store = new TimeSeriesStore(capacity);
 
     /**
-     * The Server Component emits timestamps as offsets relative to zero so that
-     * the route contains no wall-clock value and can be statically generated.
-     * Rebasing them onto this client's clock is what makes a cached payload
-     * still read as "the last minute" for whoever loads it.
-     *
-     * Written into a typed array rather than mapped into a new JS array: this
-     * is 10k numbers, and the store wants them in this form anyway.
+     * The seed timestamps are intentionally relative to zero so the route can be
+     * rendered deterministically during SSR and hydration. Only after the client
+     * mounts do we rebase the window onto the local clock.
      */
-    const base = Date.now();
     const seedTs = new Float64Array(initialData.timestamps.length);
-    for (let i = 0; i < seedTs.length; i++) seedTs[i] = initialData.timestamps[i] + base;
+    for (let i = 0; i < seedTs.length; i++) seedTs[i] = initialData.timestamps[i];
     store.pushBatch(seedTs, initialData.values, initialData.categories);
 
-    const now = store.tMax || base;
+    const now = store.tMax || 0;
     const viewport = new ViewportStore(
       { tMin: now - DEFAULT_SPAN_MS, tMax: now, vMin: 0, vMax: 100 },
       DEFAULT_SPAN_MS,
@@ -108,6 +103,21 @@ export function DataProvider({
 
     return { store, viewport, scheduler: new RenderScheduler(), clock: new FrameClock() };
   });
+
+  useEffect(() => {
+    if (initialData.timestamps.length === 0) return;
+
+    const { store, viewport } = engine;
+    const latestSeed = initialData.timestamps.at(-1) ?? 0;
+    const offset = Date.now() - latestSeed;
+    if (!Number.isFinite(offset) || offset === 0) return;
+
+    const rebased = new Float64Array(initialData.timestamps.length);
+    for (let i = 0; i < rebased.length; i++) rebased[i] = initialData.timestamps[i] + offset;
+    store.clear();
+    store.pushBatch(rebased, initialData.values, initialData.categories);
+    viewport.setSpan(DEFAULT_SPAN_MS, store.tMax || Date.now());
+  }, [engine, initialData]);
 
   const [categoryMask, setCategoryMask] = useState(ALL_CATEGORIES);
   const [bucket, setBucket] = useState<TimeBucket>('raw');
